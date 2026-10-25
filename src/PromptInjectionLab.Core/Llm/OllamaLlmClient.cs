@@ -1,6 +1,7 @@
-using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -12,75 +13,79 @@ namespace PromptInjectionLab.Core.Llm;
 /// Talks to Ollama via its native /api/chat endpoint (non-streaming).
 /// "think": false disables the reasoning phase of thinking models (e.g. qwen3.5)
 /// so the short token budget is spent on the answer; the answer is read from
-/// "message.content". Validate with the `check` command and a pilot run before
-/// any result is trusted.
+/// "message.content". Token counts come from prompt_eval_count / eval_count.
+/// Validate with the `check` command and a pilot run before any result is trusted.
 /// </summary>
 public sealed class OllamaLlmClient : ILlmClient
 {
     private readonly HttpClient _http;
     private readonly OllamaOptions _options;
-    private readonly ILogger<OllamaLlmClient> _logger;
+    private readonly HttpLlmTransport _transport;
 
-    public OllamaLlmClient(HttpClient http, IOptions<OllamaOptions> options, ILogger<OllamaLlmClient> logger)
+    public OllamaLlmClient(HttpClient http, IOptions<OllamaOptions> options, ILogger<OllamaLlmClient> logger,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         _http = http;
         _options = options.Value;
-        _logger = logger;
+        _transport = new HttpLlmTransport(http, logger, delay);
+        Info = new LlmClientInfo("Ollama", _options.Model, _options.ChatUrl, _options.Temperature,
+            _options.MaxTokens, _options.Seed, ApiVersion: null, IsPaid: false, ExtraParameters: "think=false");
     }
+
+    public LlmClientInfo Info { get; }
 
     public async Task<LlmResponse> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
-        var sw = Stopwatch.StartNew();
-        try
-        {
-            var body = new ChatRequest
-            {
-                Model = _options.Model,
-                Options = new ChatOptions
-                {
-                    Temperature = _options.Temperature,
-                    NumPredict = _options.MaxTokens,
-                    Seed = _options.Seed,
-                },
-                Messages = new[]
-                {
-                    new ChatMessage { Role = "system", Content = systemPrompt },
-                    new ChatMessage { Role = "user", Content = userPrompt },
-                },
-            };
+        var options = new JsonObject { ["num_predict"] = _options.MaxTokens };
+        if (_options.Temperature is { } t) options["temperature"] = t;
+        if (_options.Seed is { } s) options["seed"] = s;
 
-            using var req = new HttpRequestMessage(HttpMethod.Post, _options.ChatUrl)
+        var body = new JsonObject
+        {
+            ["model"] = _options.Model,
+            ["messages"] = new JsonArray
             {
-                Content = JsonContent.Create(body),
+                new JsonObject { ["role"] = "system", ["content"] = systemPrompt },
+                new JsonObject { ["role"] = "user", ["content"] = userPrompt },
+            },
+            ["stream"] = false,
+            ["think"] = false,
+            ["options"] = options,
+        };
+        var json = body.ToJsonString();
+
+        var r = await _transport.SendAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, _options.ChatUrl)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
             };
             if (!string.IsNullOrWhiteSpace(_options.ApiKey))
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+            return req;
+        }, _options, "Ollama", _options.ApiKey, ct);
 
-            using var resp = await _http.SendAsync(req, ct);
-            sw.Stop();
+        if (!r.Ok) return ProviderSupport.Failure(r);
 
-            if (!resp.IsSuccessStatusCode)
+        try
+        {
+            using var doc = JsonDocument.Parse(r.Body);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return ProviderSupport.InvalidResponse(r, "body is not a JSON object");
+            return new LlmResponse(true, root.Obj("message").Str("content") ?? "", null, r.ElapsedMs)
             {
-                var err = $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}";
-                _logger.LogWarning("Ollama returned non-success: {Error}", err);
-                return new LlmResponse(false, "", err, sw.ElapsedMilliseconds);
-            }
-
-            var parsed = await resp.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: ct);
-            var text = parsed?.Message?.Content ?? "";
-            return new LlmResponse(true, text, null, sw.ElapsedMilliseconds);
+                HttpStatus = r.Status,
+                Attempts = r.Attempts,
+                ResponseModel = root.Str("model"),
+                InputTokens = root.Int("prompt_eval_count"),
+                OutputTokens = root.Int("eval_count"),
+                FinishReason = root.Str("done_reason"),
+            };
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (JsonException ex)
         {
-            sw.Stop();
-            _logger.LogWarning("Ollama request timed out after {Ms} ms", sw.ElapsedMilliseconds);
-            return new LlmResponse(false, "", "timeout", sw.ElapsedMilliseconds, TimedOut: true);
-        }
-        catch (Exception ex)
-        {
-            sw.Stop();
-            _logger.LogWarning("Ollama request failed: {Error}", ex.Message);
-            return new LlmResponse(false, "", ex.Message, sw.ElapsedMilliseconds);
+            return ProviderSupport.InvalidResponse(r, ex.Message);
         }
     }
 
@@ -107,34 +112,6 @@ public sealed class OllamaLlmClient : ILlmClient
         {
             return new HealthResult(false, false, Array.Empty<string>(), ex.Message);
         }
-    }
-
-    // --- Wire DTOs (private) ---
-    private sealed class ChatRequest
-    {
-        [JsonPropertyName("model")] public string Model { get; set; } = "";
-        [JsonPropertyName("messages")] public ChatMessage[] Messages { get; set; } = Array.Empty<ChatMessage>();
-        [JsonPropertyName("stream")] public bool Stream => false;
-        [JsonPropertyName("think")] public bool Think => false;
-        [JsonPropertyName("options")] public ChatOptions Options { get; set; } = new();
-    }
-
-    private sealed class ChatOptions
-    {
-        [JsonPropertyName("temperature")] public double Temperature { get; set; }
-        [JsonPropertyName("num_predict")] public int NumPredict { get; set; }
-        [JsonPropertyName("seed")] public int? Seed { get; set; }
-    }
-
-    private sealed class ChatMessage
-    {
-        [JsonPropertyName("role")] public string Role { get; set; } = "";
-        [JsonPropertyName("content")] public string Content { get; set; } = "";
-    }
-
-    private sealed class ChatResponse
-    {
-        [JsonPropertyName("message")] public ChatMessage? Message { get; set; }
     }
 
     private sealed class TagsResponse

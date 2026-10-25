@@ -1,7 +1,19 @@
 bin/
 obj/
 .vs/
-appsettings.Local.json
-results*.csv
 *.user
 *.suo
+
+# Experiment outputs (results + per-run settings sidecar)
+results*.csv
+results*.jsonl
+
+# Secrets: local config and env files must never be committed.
+# Templates (appsettings.Local.example.json, .env.example) stay tracked.
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+*.secrets.json
+.env
+.env.*
+!.env.example

@@ -5,7 +5,11 @@ tests.AddRange(CategoryRegistryTests.Tests());
 tests.AddRange(CategoryOutputParserTests.Tests());
 tests.AddRange(MetricsCalculatorTests.Tests());
 tests.AddRange(PromptBuilderTests.Tests());
+tests.AddRange(DocumentExtractionTests.Tests());
+tests.AddRange(CsvRunRecordSinkTests.Tests());
 tests.AddRange(OllamaLlmClientTests.Tests());
+tests.AddRange(ProviderAdapterTests.Tests());
+tests.AddRange(ProviderInfrastructureTests.Tests());
 tests.AddRange(ClassificationPipelineTests.Tests());
 
 int passed = 0, failed = 0;
