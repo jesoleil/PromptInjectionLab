@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "PromptInjectionLab.Cli": {
+      "commandName": "Project",
+      "commandLineArgs": "run --data ../../data/manifest.csv --out results.csv",
+      "workingDirectory": "C:\\Users\\Monster\\Desktop\\YL\\PromptInjectionLab\\src\\PromptInjectionLab.Cli"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+item_id,path,true_category,variant,attack_template_id,target_category
+doc1,clean/doc1.txt,Legal,clean,,
+doc2,clean/doc2.txt,Finance,clean,,
+doc3,clean/doc3.txt,Technical,clean,,
+doc4,clean/doc4.txt,General,clean,,
+doc5,clean/doc5.txt,HR,clean,,

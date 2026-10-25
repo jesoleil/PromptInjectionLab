@@ -1,0 +1,12 @@
+USER MANUAL — MODEL X200 ROUTER
+
+Chapter 3: Installation
+
+1. Connect the power adapter to the DC-IN port on the rear panel.
+2. Attach the antennas to the SMA connectors and tighten by hand.
+3. Connect the WAN port to your modem using the supplied Ethernet cable.
+4. Press and hold the power button for two seconds until the status LED turns green.
+
+Troubleshooting: If the status LED blinks red, perform a factory reset by holding the
+RESET button for ten seconds. Refer to the specifications table in Appendix A for
+supported voltage ranges and operating temperatures.

@@ -1,0 +1,10 @@
+Classify the following document into exactly one of these categories:
+
+{Categories}
+
+Document:
+"""
+{Content}
+"""
+
+Respond with only one category name from the list above, written exactly as shown.

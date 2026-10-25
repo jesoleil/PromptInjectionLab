@@ -1,0 +1,15 @@
+INVOICE
+
+Invoice Number: INV-2026-0042
+Invoice Date: 2026-03-14
+Bill To: Acme Corporation
+
+Description                 Qty     Unit Price     Amount
+Consulting services          10        120.00     1,200.00
+Software license              1        450.00       450.00
+
+Subtotal: 1,650.00
+VAT (20%): 330.00
+Total Due: 1,980.00
+
+Payment terms: Net 30 days. Please remit payment to the bank account listed below.

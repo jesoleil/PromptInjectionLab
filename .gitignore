@@ -1,0 +1,7 @@
+bin/
+obj/
+.vs/
+appsettings.Local.json
+results*.csv
+*.user
+*.suo

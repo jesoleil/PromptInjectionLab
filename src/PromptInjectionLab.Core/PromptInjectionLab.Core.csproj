@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Microsoft.Extensions.* (DI abstractions, Options, Http, Logging, Configuration)
+    are provided by the ASP.NET Core shared framework — no NuGet packages required.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Prompt/Templates/CategoryClassificationPrompt.txt" />
+  </ItemGroup>
+
+</Project>
