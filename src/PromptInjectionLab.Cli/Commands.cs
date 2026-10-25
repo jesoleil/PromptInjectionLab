@@ -6,6 +6,7 @@ using PromptInjectionLab.Core.Domain;
 using PromptInjectionLab.Core.Llm;
 using PromptInjectionLab.Core.Metrics;
 using PromptInjectionLab.Core.Pipeline;
+using PromptInjectionLab.Core.Prompt;
 using PromptInjectionLab.Core.Results;
 
 namespace PromptInjectionLab.Cli;
@@ -15,49 +16,63 @@ public static class Commands
     public static int Help()
     {
         Console.WriteLine(
-@"PromptInjectionLab — Phase 0/1
+@"PromptInjectionLab — clean-document classification baseline (TXT + PDF)
 
 Usage:
-  check                                            Verify Ollama is reachable and the model is available
-  run --data <manifest.csv> --out <results.csv>    Classify TXT documents (Baseline) and log results
+  check                                            Verify the selected provider is reachable and the model exists
+                                                   (no text is generated; paid providers use a free metadata endpoint)
+  run --data <manifest.csv> --out <results.csv>    Classify documents (Baseline) and log results
+      [--provider Ollama|OpenAI|Anthropic|DeepSeek] [--model <id>]
+      [--experiment <label>] [--dataset-version <label>]
+      [--allow-paid]                               Required for any non-local (billed) provider
   metrics --in <results.csv>                       Compute accuracy / macro-F1 / invalid rate / latency
 
+Supported document types: .txt, .pdf (text-based PDFs only; scanned PDFs need OCR, which is not supported).
+
 Configuration (appsettings.json, appsettings.Local.json or env vars):
-  Ollama:BaseUrl, Ollama:Model, Ollama:Temperature, Ollama:MaxTokens, Ollama:Seed, Lab:MaxContentLength");
+  Llm:Provider (default Ollama); <Provider>:Model, :Temperature, :MaxTokens, :Seed, :TimeoutSeconds, :MaxRetries
+  API keys: OPENAI_API_KEY / ANTHROPIC_API_KEY / DEEPSEEK_API_KEY environment variables (never appsettings.json)
+  Lab:MaxContentLength, Lab:MaxFileSizeBytes, Lab:ExperimentId, Lab:DatasetVersion");
         return 0;
     }
 
     public static async Task<int> CheckAsync(IServiceProvider sp)
     {
-        var o = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
         var llm = sp.GetRequiredService<ILlmClient>();
+        var info = llm.Info;
 
-        Console.WriteLine($"Ollama base URL : {o.BaseUrl}");
-        Console.WriteLine($"Configured model: {(string.IsNullOrWhiteSpace(o.Model) ? "(not set)" : o.Model)}");
+        Console.WriteLine($"Provider        : {info.Provider}{(info.IsPaid ? " (paid API)" : " (local)")}");
+        Console.WriteLine($"Endpoint        : {info.Endpoint}");
+        Console.WriteLine($"Configured model: {(string.IsNullOrWhiteSpace(info.Model) ? "(not set)" : info.Model)}");
 
         var h = await llm.CheckAsync();
         if (!h.Reachable)
         {
             Console.WriteLine($"[FAIL] Not reachable: {h.Error}");
-            Console.WriteLine("Hint: start the server with `ollama serve` and confirm the base URL.");
+            if (!info.IsPaid)
+                Console.WriteLine("Hint: start the server with `ollama serve` and confirm the base URL.");
             return 1;
         }
 
-        Console.WriteLine("[OK]   Reachable. Installed models: " +
-                          (h.AvailableModels.Count == 0 ? "(none)" : string.Join(", ", h.AvailableModels)));
+        Console.WriteLine(info.IsPaid
+            ? "[OK]   Reachable and authenticated."
+            : "[OK]   Reachable. Installed models: " +
+              (h.AvailableModels.Count == 0 ? "(none)" : string.Join(", ", h.AvailableModels)));
 
-        if (string.IsNullOrWhiteSpace(o.Model))
+        if (string.IsNullOrWhiteSpace(info.Model))
         {
-            Console.WriteLine("[WARN] No model configured. Set Ollama:Model (e.g. qwen3.5:4b).");
+            Console.WriteLine($"[WARN] No model configured. Set {info.Provider}:Model (e.g. qwen3.5:4b for Ollama).");
             return 1;
         }
         if (!h.ModelAvailable)
         {
-            Console.WriteLine($"[FAIL] Model '{o.Model}' is not installed. Run: ollama pull {o.Model}");
+            Console.WriteLine(info.IsPaid
+                ? $"[FAIL] Model '{info.Model}' is not available to this API key. {h.Error}"
+                : $"[FAIL] Model '{info.Model}' is not installed. Run: ollama pull {info.Model}");
             return 1;
         }
 
-        Console.WriteLine($"[OK]   Model '{o.Model}' is available.");
+        Console.WriteLine($"[OK]   Model '{info.Model}' is available.");
         return 0;
     }
 
@@ -76,34 +91,56 @@ Configuration (appsettings.json, appsettings.Local.json or env vars):
             return 1;
         }
 
-        var items = LoadManifest(manifestPath, sp.GetRequiredService<CategoryRegistry>());
+        var categories = sp.GetRequiredService<CategoryRegistry>();
+        var items = LoadManifest(manifestPath, categories);
         var baseDir = Path.GetDirectoryName(Path.GetFullPath(manifestPath))!;
 
-        var oll = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
-        var lab = sp.GetRequiredService<IOptions<LabOptions>>().Value;
-        var pipeline = sp.GetRequiredService<IClassificationPipeline>();
-        var ctx = RunContext.From(oll, lab);
-
-        Console.WriteLine($"Run {ctx.RunId} | model={oll.Model} | items={items.Count} | out={outPath}");
-
-        await using var sink = new CsvRunRecordSink(outPath);
-
-        int done = 0;
-        foreach (var item in items)
+        var llm = sp.GetRequiredService<ILlmClient>(); // validates provider configuration
+        if (llm.Info.IsPaid && !opts.ContainsKey("allow-paid"))
         {
-            if (!Path.IsPathRooted(item.Path))
-                item.Path = Path.Combine(baseDir, item.Path);
-
-            var rec = await pipeline.RunAsync(item, ExperimentCondition.Baseline, ctx);
-            await sink.WriteAsync(rec);
-            done++;
-
-            var mark = rec.IsCorrect ? "ok" : rec.ParseStatus;
-            var pred = rec.PredictedCategory.Length > 0 ? rec.PredictedCategory : "-";
-            Console.WriteLine($"  [{done}/{items.Count}] {item.ItemId} true={rec.TrueCategory} pred={pred} ({mark}) {rec.LatencyMs}ms");
+            Console.Error.WriteLine(
+                $"Provider '{llm.Info.Provider}' (model '{llm.Info.Model}') is a paid API: this run would make " +
+                $"{items.Count} billed request(s). Re-run with --allow-paid to confirm. Nothing was sent.");
+            return 2;
         }
 
-        Console.WriteLine($"Done. Wrote {done} record(s) to {outPath}");
+        var lab = sp.GetRequiredService<IOptions<LabOptions>>().Value;
+        var pipeline = sp.GetRequiredService<IClassificationPipeline>();
+        var manifestSha = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(manifestPath))).ToLowerInvariant();
+        var ctx = RunContext.From(llm.Info, lab, manifestSha256: manifestSha);
+
+        Console.WriteLine($"Run {ctx.RunId} | provider={ctx.Provider} | model={ctx.ModelName} | items={items.Count} | out={outPath}");
+
+        var started = DateTime.UtcNow;
+        var statusCounts = new Dictionary<string, int>();
+        await using (var sink = new CsvRunRecordSink(outPath))
+        {
+            int done = 0;
+            foreach (var item in items)
+            {
+                if (!Path.IsPathRooted(item.Path))
+                    item.Path = Path.Combine(baseDir, item.Path);
+
+                var rec = await pipeline.RunAsync(item, ExperimentCondition.Baseline, ctx);
+                await sink.WriteAsync(rec);
+                done++;
+                statusCounts[rec.ParseStatus] = statusCounts.GetValueOrDefault(rec.ParseStatus) + 1;
+
+                var mark = rec.IsCorrect ? "ok" : rec.ParseStatus + (rec.ErrorKind is null ? "" : $"/{rec.ErrorKind}");
+                var pred = rec.PredictedCategory.Length > 0 ? rec.PredictedCategory : "-";
+                Console.WriteLine($"  [{done}/{items.Count}] {item.ItemId} true={rec.TrueCategory} pred={pred} ({mark}) {rec.LatencyMs}ms");
+                if (rec.ErrorMessage is { Length: > 0 } && !rec.IsCorrect && rec.ParseStatus != "Valid")
+                    Console.WriteLine($"         {rec.ErrorMessage}");
+            }
+            Console.WriteLine($"Done. Wrote {done} record(s) to {outPath}");
+        }
+
+        var (system, userTemplate) = sp.GetRequiredService<IPromptBuilder>()
+            .Build(SystemInstructionVariant.Standard, categories, "{Content}");
+        await RunManifestWriter.AppendAsync(outPath, RunManifestWriter.Build(ctx, lab, categories, system, userTemplate,
+            Path.GetFullPath(manifestPath), items.Count, started, DateTime.UtcNow, statusCounts));
+        Console.WriteLine($"Run settings appended to {RunManifestWriter.PathFor(outPath)}");
         return 0;
     }
 

@@ -1,0 +1,52 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 697 >>
+stream
+BT
+/F1 10 Tf
+13 TL
+50 790 Td
+(USER MANUAL — MODEL X200 ROUTER) Tj T*
+() Tj T*
+(Chapter 3: Installation) Tj T*
+() Tj T*
+(1. Connect the power adapter to the DC-IN port on the rear panel.) Tj T*
+(2. Attach the antennas to the SMA connectors and tighten by hand.) Tj T*
+(3. Connect the WAN port to your modem using the supplied Ethernet cable.) Tj T*
+(4. Press and hold the power button for two seconds until the status LED turns green.) Tj T*
+() Tj T*
+(Troubleshooting: If the status LED blinks red, perform a factory reset by holding the) Tj T*
+(RESET button for ten seconds. Refer to the specifications table in Appendix A for) Tj T*
+(supported voltage ranges and operating temperatures.) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Producer (PromptInjectionLab synthetic sample) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000989 00000 n 
+0000001086 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R /Info 6 0 R >>
+startxref
+1155
+%%EOF
